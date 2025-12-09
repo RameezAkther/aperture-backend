@@ -1,9 +1,11 @@
 fastapi
-uvicorn
+uvicorn[standard]
 motor
+pymongo
+passlib[bcrypt]
 bcrypt==4.0.1
-passlib==1.7.4
+python-jose[cryptography]
 pydantic-settings
 email-validator
 google-auth
-pymongo
+requests
