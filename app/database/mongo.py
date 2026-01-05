@@ -4,3 +4,4 @@ from app.core.config import settings
 client = AsyncIOMotorClient(settings.MONGO_URI)
 db = client[settings.MONGO_DB_NAME]
 users_collection = db["users"]
+folders_collection = db["folders"]
