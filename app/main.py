@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.auth.routes import router
 from app.folders.routes import router as folders_router
+from app.projects.routes import router as projects_router
 
 app = FastAPI()
 
@@ -15,3 +16,4 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(folders_router)
+app.include_router(projects_router)

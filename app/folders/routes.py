@@ -1,6 +1,7 @@
 import os
 import shutil
 import uuid
+from typing import List
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, status
 from app.core.security import verify_access_token
@@ -26,12 +27,12 @@ async def create_folder(
 ):
     user_id = payload.get("user_id")
     
-    # 1. Sanitize Folder Name (Prevent ".." or slashes)
+    # 1. Sanitize Folder Name
     safe_name = "".join([c for c in request.name if c.isalnum() or c in (' ', '_', '-')]).strip()
     if not safe_name:
          raise HTTPException(status_code=400, detail="Invalid folder name")
 
-    # 2. Check DB for duplicates
+    # 2. Check DB for duplicates (Ensures name uniqueness)
     existing_folder = await folders_collection.find_one({
         "user_id": user_id, 
         "name": safe_name
@@ -55,18 +56,57 @@ async def create_folder(
     }
     await folders_collection.insert_one(new_folder)
 
-    # 5. Return Response
+    return {
+        "status": "success",
+        "data": new_folder
+    }
+
+
+# --- 2. FETCH ALL FOLDERS (NEW) ---
+@router.get("", status_code=200)
+async def get_all_folders(
+    payload: dict = Depends(verify_access_token)
+):
+    user_id = payload.get("user_id")
+
+    # Fetch all documents matching the user_id
+    cursor = folders_collection.find({"user_id": user_id})
+    # Convert cursor to a Python list
+    folders = await cursor.to_list(length=None)
+
+    return {
+        "status": "success",
+        "results": len(folders),
+        "data": folders
+    }
+
+
+# --- 3. GET FOLDER ID BY NAME (NEW) ---
+@router.get("/lookup/{folder_name}")
+async def get_folder_id_by_name(
+    folder_name: str,
+    payload: dict = Depends(verify_access_token)
+):
+    user_id = payload.get("user_id")
+    
+    folder = await folders_collection.find_one({
+        "user_id": user_id, 
+        "name": folder_name
+    })
+
+    if not folder:
+        raise HTTPException(status_code=404, detail=f"Folder '{folder_name}' not found")
+
     return {
         "status": "success",
         "data": {
-            "folder_id": new_folder["_id"],
-            "name": new_folder["name"],
-            "created_at": new_folder["created_at"]
+            "folder_id": folder["_id"],
+            "name": folder["name"]
         }
     }
 
 
-# --- 2. RENAME FOLDER ---
+# --- 4. RENAME FOLDER ---
 @router.put("/{folder_id}", response_model=FolderResponse)
 async def rename_folder(
     folder_id: str,
@@ -83,9 +123,9 @@ async def rename_folder(
 
     old_name = folder["name"]
     
-    # If name hasn't changed, just return
+    # If name hasn't changed, return current data
     if old_name == new_safe_name:
-         return {"status": "success", "data": {"folder_id": folder_id, "name": old_name, "created_at": folder["created_at"]}}
+         return {"status": "success", "data": folder}
 
     # 2. Check if new name is already taken
     duplicate_check = await folders_collection.find_one({"user_id": user_id, "name": new_safe_name})
@@ -100,7 +140,6 @@ async def rename_folder(
         if os.path.exists(old_path):
             os.rename(old_path, new_path)
         else:
-            # Logic fallback: If DB record exists but folder is missing, create it
             os.makedirs(new_path, exist_ok=True)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"File system error: {str(e)}")
@@ -111,17 +150,16 @@ async def rename_folder(
         {"$set": {"name": new_safe_name}}
     )
 
+    # Fetch updated document to return accurate timestamp/data
+    updated_folder = await folders_collection.find_one({"_id": folder_id})
+
     return {
         "status": "success",
-        "data": {
-            "folder_id": folder_id,
-            "name": new_safe_name,
-            "created_at": folder["created_at"]
-        }
+        "data": updated_folder
     }
 
 
-# --- 3. DELETE FOLDER ---
+# --- 5. DELETE FOLDER ---
 @router.delete("/{folder_id}")
 async def delete_folder(
     folder_id: str,
@@ -139,7 +177,6 @@ async def delete_folder(
     
     try:
         if os.path.exists(folder_path):
-            # shutil.rmtree removes the folder and all contents
             shutil.rmtree(folder_path)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"File system error: {str(e)}")
